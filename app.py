@@ -5,6 +5,7 @@ import os
 import numpy as np
 import streamlit as st
 
+
 # Use joblib if available; otherwise fall back to pickle so the app still starts
 try:
     import joblib
@@ -137,5 +138,6 @@ if st.button("Predict Dropout Risk"):
 
     with st.expander("See input features as vector"):
         st.write(input_features.tolist())
+
 
 

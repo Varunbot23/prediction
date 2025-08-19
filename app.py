@@ -2,9 +2,17 @@
 
 from pathlib import Path
 import os
-import joblib
 import numpy as np
 import streamlit as st
+
+# Use joblib if available; otherwise fall back to pickle so the app still starts
+try:
+    import joblib
+    LOADER = "joblib"
+except Exception:
+    import pickle
+    joblib = None
+    LOADER = "pickle"
 
 HERE = Path(__file__).parent
 MODEL_PATH = HERE / "random_forest_model.pkl"
@@ -21,12 +29,15 @@ if not MODEL_PATH.exists():
     st.error(f"❌ Model file not found at: {MODEL_PATH}")
     st.stop()
 
-model = joblib.load(MODEL_PATH)
-# Load the trained model once (joblib is safest for scikit-learn objects)
+# Load model once
 try:
-    model = joblib.load(MODEL_PATH)
+    if LOADER == "joblib":
+        model = joblib.load(MODEL_PATH)
+    else:
+        with open(MODEL_PATH, "rb") as f:
+            model = pickle.load(f)
 except Exception as e:
-    st.error(f"Failed to load model from {MODEL_PATH}.\n\nDetails: {e}")
+    st.error(f"Failed to load model from {MODEL_PATH} using {LOADER}. Details: {e}")
     st.stop()
 
 # Small helper: safe probability extraction even if estimator lacks predict_proba
@@ -126,4 +137,5 @@ if st.button("Predict Dropout Risk"):
 
     with st.expander("See input features as vector"):
         st.write(input_features.tolist())
+
 

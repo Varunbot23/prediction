@@ -1,4 +1,4 @@
-# app.py — Student Dropout Risk Prediction (Random Forest)
+# app.py — Student Dropout Risk Prediction (Random Forest) + Interactive UI + Review
 
 from pathlib import Path
 import os, re, copy
@@ -99,6 +99,95 @@ def show_risk_gauge(prob):
 
 def norm(s: str) -> str:
     return re.sub(r"[^a-z0-9]", "", s.lower())
+
+# ====== NEW: personalised review / suggestions ======
+def build_recommendations(fdict: dict):
+    """
+    Return a list of (priority, title, tip) tuples based on input features.
+    priority: 3 = critical, 2 = important, 1 = nice-to-have
+    """
+    recs = []
+
+    # Helpers
+    def add(priority, title, tip):
+        recs.append((priority, title, tip))
+
+    # Heuristic thresholds (adjust to your dataset norms if needed)
+    attendance = float(fdict.get("attendance", 0))
+    study_hours = float(fdict.get("study_hours", 0))
+    total_score = float(fdict.get("total_score", 0))
+    assignments = float(fdict.get("assignments", 0))
+    quizzes = float(fdict.get("quizzes", 0))
+    participation = float(fdict.get("participation", 0))
+    projects = float(fdict.get("projects", 0))
+    midterm = float(fdict.get("midterm", 0))
+    final = float(fdict.get("final", 0))
+    stress = float(fdict.get("stress", 5))
+    sleep = float(fdict.get("sleep", 7))
+    internet_yes = int(fdict.get("internet_yes", 1))
+    extra_yes = int(fdict.get("extra_yes", 0))
+
+    # Core academic levers
+    if attendance < 75:
+        add(3, "Attendance below 75%",
+            "Target at least 85%. Block class times in a calendar and set reminders. Coordinate with your tutor for catch-up plans.")
+    elif attendance < 85:
+        add(2, "Attendance could be higher",
+            "Aim for 85–90%+ to stabilise performance. Identify sessions you usually miss and remove obstacles.")
+
+    if total_score < 60:
+        add(3, "Low overall performance",
+            "Focus on fundamentals first. Revisit lecture notes and attempt past questions. Book office hours weekly.")
+    elif total_score < 75:
+        add(2, "Improve overall score",
+            "Add 30–60 mins of daily revision; use spaced repetition for key topics.")
+
+    # Component scores
+    if quizzes < 60: add(2, "Quizzes under 60", "Do short daily quizzes; track errors and review weak topics.")
+    if assignments < 60: add(2, "Assignments under 60", "Start earlier; split into milestones; use rubric as a checklist.")
+    if participation < 60: add(1, "Low participation", "Ask one question per class; summarise a concept to a peer.")
+    if projects < 60: add(1, "Project score low", "Create a mini-plan with deliverables; pair up for peer review.")
+    if midterm < 60: add(2, "Midterm needs work", "Rebuild a formula sheet / concept map; practise timed sections.")
+    if final < 60: add(2, "Final score weak", "Simulate exam conditions weekly; focus on high-weight topics.")
+
+    # Study habits
+    if study_hours < 8:
+        add(3, "Very low study time",
+            "Increase to ~12–15 hrs/week. Use Pomodoro (25/5). Protect a fixed daily slot.")
+    elif study_hours < 12:
+        add(2, "Study time can increase",
+            "Add +3–5 hrs/week. Replace passive reading with active recall (flashcards).")
+
+    # Wellbeing
+    if stress >= 8:
+        add(3, "Stress very high",
+            "Use time-blocking, weekly planning, and 10-minute wind-down before sleep. Consider speaking to counselling services.")
+    elif stress >= 6:
+        add(2, "Moderate stress",
+            "Add two 10-minute breaks per study hour and light exercise 3x/week.")
+
+    if sleep < 6:
+        add(2, "Insufficient sleep",
+            "Aim for 7–9 hours. Keep consistent sleep/wake time; avoid screens 1 hour before bed.")
+    elif sleep > 10:
+        add(1, "Oversleeping",
+            "Align to 7–9 hours; investigate daytime fatigue causes.")
+
+    # Access & balance
+    if internet_yes == 0:
+        add(2, "Unreliable home internet",
+            "Download materials offline; plan campus/library sessions for assessments.")
+    if extra_yes == 1 and (total_score < 70 or attendance < 85):
+        add(1, "Balance extracurriculars",
+            "Reduce load during assessment weeks; prioritise core modules.")
+
+    # Derived metric: study efficiency
+    if study_hours > 0:
+        efficiency = total_score / max(study_hours, 1e-6)
+        if efficiency < 4.0:  # arbitrary reference: <4 pts per hour
+            add(2, "Low study efficiency",
+                "Switch to active techniques: past papers, self-explanations, teaching a peer. Review after-action notes.")
+    return sorted(recs, key=lambda x: -x[0])
 
 # =========================
 # UI — Inputs
@@ -224,6 +313,7 @@ def value_for(model_name: str) -> float:
     return 0.0
 
 # Build X
+FEATURE_NAMES = get_feature_names(model)  # refresh in case of pipeline
 if FEATURE_NAMES:
     row = {name: value_for(name) for name in FEATURE_NAMES}
     X = pd.DataFrame([row], columns=FEATURE_NAMES)
@@ -251,7 +341,7 @@ with st.expander("🧮 Input vector check"):
         st.write("Could not display X:", e)
 
 # =========================
-# Predict (live or on click)
+# Predict (live or on click) + REVIEW
 # =========================
 def predict_once():
     try:
@@ -262,100 +352,6 @@ def predict_once():
         st.error(f"Prediction failed: {e}")
         return None, None
 
-if auto_predict:
-    y_pred, prob_pos = predict_once()
-    if prob_pos is not None:
-        lvl, dot = risk_level(prob_pos)
-        st.subheader(f"{dot} {lvl} risk")
-        show_risk_gauge(prob_pos)
-else:
-    if st.button("Predict Dropout Risk", type="primary"):
-        y_pred, prob_pos = predict_once()
-        if prob_pos is not None:
-            lvl, dot = risk_level(prob_pos)
-            st.subheader(f"{dot} {lvl} risk")
-            show_risk_gauge(prob_pos)
-
-# =========================
-# Scenario Explorer (what-if)
-# =========================
-with st.expander("🧪 Scenario Explorer (what-if)"):
-    sweepable = {
-        "attendance": (0.0, 100.0, attendance),
-        "study_hours": (0.0, 60.0, study_hours),
-        "total_score": (0.0, 100.0, total_score),
-        "stress": (1.0, 10.0, float(stress)),
-        "sleep": (0.0, 12.0, sleep),
-    }
-    feat_name = st.selectbox("Feature to vary", list(sweepable.keys()))
-    lo, hi, current = sweepable[feat_name]
-    rng = st.slider("Range", float(lo), float(hi), (max(lo, current - 20), min(hi, current + 20)))
-    steps = st.number_input("Steps", 5, 50, 20)
-
-    vals = np.linspace(rng[0], rng[1], int(steps))
-    probs = []
-
-    if hasattr(X, "copy"):
-        base = X.copy()
-        for v in vals:
-            Xv = base.copy()
-            # If DF has the column, set directly; otherwise try loose match
-            if feat_name in Xv.columns:
-                Xv.loc[:, feat_name] = v
-            else:
-                # try a fuzzy match: remove underscores and compare lowercase
-                target = feat_name.replace("_", "").lower()
-                for c in Xv.columns:
-                    if target in c.replace("_", "").lower():
-                        Xv.loc[:, c] = v
-            probs.append(get_positive_proba(model, Xv))
-        # Plot
-        import altair as alt
-        chart = alt.Chart(pd.DataFrame({"value": vals, "risk": probs})).mark_line().encode(
-            x="value:Q", y=alt.Y("risk:Q", axis=alt.Axis(format="%")),
-            tooltip=["value", alt.Tooltip("risk:Q", format=".1%")]
-        ).properties(height=260)
-        st.altair_chart(chart, use_container_width=True)
-    else:
-        st.info("Scenario Explorer needs column names (DataFrame). It’s unavailable for ndarray inputs.")
-
-# =========================
-# Batch predictions from CSV (optional)
-# =========================
-with st.expander("📥 Batch predictions from CSV"):
-    uploaded = st.file_uploader("Upload CSV with columns matching model features", type=["csv"])
-    if uploaded is not None:
-        df = pd.read_csv(uploaded)
-        try:
-            if FEATURE_NAMES:
-                # Build an aligned frame with zeros then fill from df where possible
-                aligned = pd.DataFrame(0.0, index=df.index, columns=FEATURE_NAMES)
-                # Try direct column matches first
-                for col in FEATURE_NAMES:
-                    if col in df.columns:
-                        aligned[col] = df[col]
-                # Try normalized name mapping for remaining
-                incoming = {norm(c): c for c in df.columns}
-                for col in FEATURE_NAMES:
-                    if aligned[col].eq(0.0).all() and col not in df.columns:
-                        n = norm(col)
-                        if n in incoming:
-                            aligned[col] = df[incoming[n]]
-                Xb = aligned
-            else:
-                Xb = df  # hope order matches if names were not preserved
-
-            # Predict
-            if hasattr(model, "predict_proba"):
-                probs = model.predict_proba(Xb)[:, 1]
-            else:
-                probs = model.predict(Xb).astype(float)
-
-            out = df.copy()
-            out["dropout_risk"] = probs
-            st.dataframe(out.head(50))
-            st.download_button("Download predictions CSV",
-                               out.to_csv(index=False).encode("utf-8"),
-                               file_name="predictions.csv", mime="text/csv")
-        except Exception as e:
-            st.error(f"Batch prediction failed: {e}")
+def render_review(prob, fdict):
+    st.subheader("📝 Personalised Review & Suggestions")
+    lvl, dot = risk_level(_

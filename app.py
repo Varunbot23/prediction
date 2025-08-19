@@ -1,6 +1,7 @@
 from pathlib import Path
 import streamlit as st
 import joblib, os
+import numpy as np   # you forgot this import too!
 
 HERE = Path(__file__).parent
 MODEL_PATH = HERE / "random_forest_model.pkl"
@@ -14,6 +15,9 @@ with st.expander("Debug info"):
 if not MODEL_PATH.exists():
     st.error(f"Model file not found at: {MODEL_PATH}")
     st.stop()
+
+# ✅ Load model only once
+model = joblib.load(MODEL_PATH)
     
 # ===== Page Title =====
 st.title("🎓 Student Dropout Risk Prediction (Random Forest)")
@@ -78,6 +82,7 @@ if st.button("Predict Dropout Risk"):
         st.error(f"⚠️ Student is AT RISK of dropping out (Risk Probability: {probability:.2%})")
     else:
         st.success(f"✅ Student is NOT at high risk (Risk Probability: {probability:.2%})")
+
 
 
 

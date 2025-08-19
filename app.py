@@ -1,8 +1,7 @@
 # app.py — Student Dropout Risk Prediction (Random Forest)
 
 from pathlib import Path
-import os
-import re
+import os, re, copy
 
 import numpy as np
 import pandas as pd
@@ -25,7 +24,7 @@ st.title("🎓 Student Dropout Risk Prediction (Random Forest)")
 st.write("Provide the student's academic, behavioral, and demographic data to predict dropout risk.")
 
 # =========================
-# Model loading
+# Model loading + debug
 # =========================
 HERE = Path(__file__).parent
 MODEL_PATH = HERE / "random_forest_model.pkl"
@@ -87,6 +86,20 @@ with st.expander("ℹ️ Model input shape"):
     st.write("Model expects n_features_in_:", getattr(model, "n_features_in_", "unknown"))
     st.write("Model feature_names_in_ (if available):", FEATURE_NAMES if FEATURE_NAMES else "(not provided)")
 
+# ---------- UI helpers ----------
+def risk_level(prob):
+    if prob >= 0.70: return "High", "🔴"
+    if prob >= 0.40: return "Moderate", "🟠"
+    return "Low", "🟢"
+
+def show_risk_gauge(prob):
+    lvl, dot = risk_level(prob)
+    st.metric("Dropout Risk", f"{prob:.1%}", help=f"Level: {lvl}")
+    st.progress(min(max(prob, 0.0), 1.0))
+
+def norm(s: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", s.lower())
+
 # =========================
 # UI — Inputs
 # =========================
@@ -112,6 +125,11 @@ extra = st.selectbox("Extracurricular Activities", ["Yes", "No"])
 internet = st.selectbox("Internet Access at Home", ["Yes", "No"])
 parent_edu = st.selectbox("Parent_Education_Level", ["None", "High School", "Bachelor's", "Master's", "PhD"])
 income = st.selectbox("Family_Income_Level", ["Low", "Medium", "High"])
+
+# Sidebar controls
+with st.sidebar:
+    st.header("⚙️ Controls")
+    auto_predict = st.toggle("🔄 Auto-predict", value=True, help="Recompute as you change inputs")
 
 # =========================
 # Build a superset of possible dummies
@@ -141,7 +159,7 @@ features = {
     "parent_none": 1 if parent_edu == "None" else 0,
     "parent_hs": 1 if parent_edu == "High School" else 0,
     "parent_bachelor": 1 if parent_edu == "Bachelor's" else 0,
-    "parent_bachelors": 1 if parent_edu == "Bachelor's" else 0,  # alias to catch naming
+    "parent_bachelors": 1 if parent_edu == "Bachelor's" else 0,  # alias
     "parent_master": 1 if parent_edu == "Master's" else 0,
     "parent_phd": 1 if parent_edu == "PhD" else 0,
 
@@ -154,41 +172,37 @@ features = {
 # =========================
 # Align UI features to model's expected names
 # =========================
-def norm(s: str) -> str:
-    return re.sub(r"[^a-z0-9]", "", s.lower())
-
-# normalized key -> value
+# Normalized key -> value
 norm_map = {norm(k): float(v) for k, v in features.items()}
 
 # Common aliases: normalized model names -> our internal normalized key names
 alias = {
-    "midtermscore": "midterm",
-    "finalscore": "final",
-    "assignmentsavg": "assignments",
-    "quizzesavg": "quizzes",
-    "participationscore": "participation",
-    "projectsscore": "projects",
-    "studyhoursperweek": "studyhours",
-    "stresslevel": "stress",
+    # numeric aliases
+    "midtermscore": "midterm", "finalscore": "final",
+    "assignmentsavg": "assignments", "quizzesavg": "quizzes",
+    "participationscore": "participation", "projectsscore": "projects",
+    "studyhoursperweek": "studyhours", "stresslevel": "stress",
     "sleephourspernight": "sleep",
 
-    "gendermale": "gendermale",
-    "genderfemale": "genderfemale",
+    # gender
+    "gendermale": "gendermale", "genderfemale": "genderfemale",
 
-    "departmentcs": "deptcs",
-    "departmentengineering": "depteng",
-    "departmentmathematics": "deptmath",
-    "departmentbusiness": "deptbusiness",
+    # department
+    "departmentcs": "deptcs", "departmentengineering": "depteng",
+    "departmentmathematics": "deptmath", "departmentbusiness": "deptbusiness",
 
+    # booleans
     "extracurricularactivitiesyes": "extrayes",
     "internetaccessathomeyes": "internetyes",
 
+    # parent ed
     "parenteducationlevelnone": "parentnone",
     "parenteducationlevelhighschool": "parenths",
     "parenteducationlevelbachelors": "parentbachelor",
     "parenteducationlevelmasters": "parentmaster",
     "parenteducationlevelphd": "parentphd",
 
+    # income
     "familyincomelevellow": "incomelow",
     "familyincomelevelmedium": "incomemedium",
     "familyincomelevelhigh": "incomehigh",
@@ -196,24 +210,17 @@ alias = {
 
 def value_for(model_name: str) -> float:
     n = norm(model_name)
-
-    # direct normalized lookup
-    if n in norm_map:
+    if n in norm_map:  # direct hit
         return norm_map[n]
-
-    # alias mapping
-    if n in alias and alias[n] in norm_map:
+    if n in alias and alias[n] in norm_map:  # alias hit
         return norm_map[alias[n]]
-
-    # heuristics for common small differences
-    # e.g., parent_bachelors vs parent_bachelor
+    # heuristics for small diffs
     if n.endswith("bachelors") and "parentbachelor" in norm_map:
         return norm_map["parentbachelor"]
     if n.endswith("bachelor") and "parentbachelors" in norm_map:
         return norm_map["parentbachelors"]
-    if n.startswith("dept") and n.replace("department", "dept") in norm_map:
+    if n.startswith("department") and n.replace("department", "dept") in norm_map:
         return norm_map[n.replace("department", "dept")]
-
     return 0.0
 
 # Build X
@@ -244,17 +251,111 @@ with st.expander("🧮 Input vector check"):
         st.write("Could not display X:", e)
 
 # =========================
-# Predict
+# Predict (live or on click)
 # =========================
-if st.button("Predict Dropout Risk"):
+def predict_once():
     try:
         y_pred = int(model.predict(X)[0])
-        prob_pos = get_positive_proba(model, X)
+        prob = get_positive_proba(model, X)
+        return y_pred, prob
     except Exception as e:
         st.error(f"Prediction failed: {e}")
-        st.stop()
+        return None, None
 
-    if y_pred == 1:
-        st.error(f"⚠️ Student is AT RISK of dropping out (Risk Probability: {prob_pos:.2%})")
+if auto_predict:
+    y_pred, prob_pos = predict_once()
+    if prob_pos is not None:
+        lvl, dot = risk_level(prob_pos)
+        st.subheader(f"{dot} {lvl} risk")
+        show_risk_gauge(prob_pos)
+else:
+    if st.button("Predict Dropout Risk", type="primary"):
+        y_pred, prob_pos = predict_once()
+        if prob_pos is not None:
+            lvl, dot = risk_level(prob_pos)
+            st.subheader(f"{dot} {lvl} risk")
+            show_risk_gauge(prob_pos)
+
+# =========================
+# Scenario Explorer (what-if)
+# =========================
+with st.expander("🧪 Scenario Explorer (what-if)"):
+    sweepable = {
+        "attendance": (0.0, 100.0, attendance),
+        "study_hours": (0.0, 60.0, study_hours),
+        "total_score": (0.0, 100.0, total_score),
+        "stress": (1.0, 10.0, float(stress)),
+        "sleep": (0.0, 12.0, sleep),
+    }
+    feat_name = st.selectbox("Feature to vary", list(sweepable.keys()))
+    lo, hi, current = sweepable[feat_name]
+    rng = st.slider("Range", float(lo), float(hi), (max(lo, current - 20), min(hi, current + 20)))
+    steps = st.number_input("Steps", 5, 50, 20)
+
+    vals = np.linspace(rng[0], rng[1], int(steps))
+    probs = []
+
+    if hasattr(X, "copy"):
+        base = X.copy()
+        for v in vals:
+            Xv = base.copy()
+            # If DF has the column, set directly; otherwise try loose match
+            if feat_name in Xv.columns:
+                Xv.loc[:, feat_name] = v
+            else:
+                # try a fuzzy match: remove underscores and compare lowercase
+                target = feat_name.replace("_", "").lower()
+                for c in Xv.columns:
+                    if target in c.replace("_", "").lower():
+                        Xv.loc[:, c] = v
+            probs.append(get_positive_proba(model, Xv))
+        # Plot
+        import altair as alt
+        chart = alt.Chart(pd.DataFrame({"value": vals, "risk": probs})).mark_line().encode(
+            x="value:Q", y=alt.Y("risk:Q", axis=alt.Axis(format="%")),
+            tooltip=["value", alt.Tooltip("risk:Q", format=".1%")]
+        ).properties(height=260)
+        st.altair_chart(chart, use_container_width=True)
     else:
-        st.success(f"✅ Student is NOT at high risk (Risk Probability: {prob_pos:.2%})")
+        st.info("Scenario Explorer needs column names (DataFrame). It’s unavailable for ndarray inputs.")
+
+# =========================
+# Batch predictions from CSV (optional)
+# =========================
+with st.expander("📥 Batch predictions from CSV"):
+    uploaded = st.file_uploader("Upload CSV with columns matching model features", type=["csv"])
+    if uploaded is not None:
+        df = pd.read_csv(uploaded)
+        try:
+            if FEATURE_NAMES:
+                # Build an aligned frame with zeros then fill from df where possible
+                aligned = pd.DataFrame(0.0, index=df.index, columns=FEATURE_NAMES)
+                # Try direct column matches first
+                for col in FEATURE_NAMES:
+                    if col in df.columns:
+                        aligned[col] = df[col]
+                # Try normalized name mapping for remaining
+                incoming = {norm(c): c for c in df.columns}
+                for col in FEATURE_NAMES:
+                    if aligned[col].eq(0.0).all() and col not in df.columns:
+                        n = norm(col)
+                        if n in incoming:
+                            aligned[col] = df[incoming[n]]
+                Xb = aligned
+            else:
+                Xb = df  # hope order matches if names were not preserved
+
+            # Predict
+            if hasattr(model, "predict_proba"):
+                probs = model.predict_proba(Xb)[:, 1]
+            else:
+                probs = model.predict(Xb).astype(float)
+
+            out = df.copy()
+            out["dropout_risk"] = probs
+            st.dataframe(out.head(50))
+            st.download_button("Download predictions CSV",
+                               out.to_csv(index=False).encode("utf-8"),
+                               file_name="predictions.csv", mime="text/csv")
+        except Exception as e:
+            st.error(f"Batch prediction failed: {e}")

@@ -1,11 +1,8 @@
-import streamlit as st
-import numpy as np
-import pickle
 from pathlib import Path
 import streamlit as st
 import joblib, os
 
-HERE = Path(app.py).parent
+HERE = Path(__file__).parent
 MODEL_PATH = HERE / "random_forest_model.pkl"
 
 # Debug panel in the app (remove later if you like)
@@ -18,8 +15,7 @@ if not MODEL_PATH.exists():
     st.error(f"Model file not found at: {MODEL_PATH}")
     st.stop()
 
-model = joblib.load()
-
+model = joblib.load(MODEL_PATH)
 # ===== Load trained model =====
 with open("random_forest_model.pkl", "rb") as f:
     model = pickle.load(f)
@@ -87,4 +83,5 @@ if st.button("Predict Dropout Risk"):
         st.error(f"⚠️ Student is AT RISK of dropping out (Risk Probability: {probability:.2%})")
     else:
         st.success(f"✅ Student is NOT at high risk (Risk Probability: {probability:.2%})")
+
 

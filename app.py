@@ -14,12 +14,7 @@ with st.expander("Debug info"):
 if not MODEL_PATH.exists():
     st.error(f"Model file not found at: {MODEL_PATH}")
     st.stop()
-
-model = joblib.load(MODEL_PATH)
-# ===== Load trained model =====
-with open("random_forest_model.pkl", "rb") as f:
-    model = pickle.load(f)
-
+    
 # ===== Page Title =====
 st.title("🎓 Student Dropout Risk Prediction (Random Forest)")
 
@@ -83,5 +78,6 @@ if st.button("Predict Dropout Risk"):
         st.error(f"⚠️ Student is AT RISK of dropping out (Risk Probability: {probability:.2%})")
     else:
         st.success(f"✅ Student is NOT at high risk (Risk Probability: {probability:.2%})")
+
 
 

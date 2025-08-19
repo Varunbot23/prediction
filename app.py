@@ -6,11 +6,8 @@ import joblib
 import numpy as np
 import streamlit as st
 
-# =========================
-# Setup & Model Loading
-# =========================
 HERE = Path(__file__).parent
-MODEL_PATH = HERE / "random_forest_model.pkl"   # change if your file lives elsewhere
+MODEL_PATH = HERE / "random_forest_model.pkl"
 
 with st.expander("🔎 Debug info (hide before sharing)"):
     st.write("Working dir:", os.getcwd())
@@ -24,6 +21,7 @@ if not MODEL_PATH.exists():
     st.error(f"❌ Model file not found at: {MODEL_PATH}")
     st.stop()
 
+model = joblib.load(MODEL_PATH)
 # Load the trained model once (joblib is safest for scikit-learn objects)
 try:
     model = joblib.load(MODEL_PATH)
@@ -128,3 +126,4 @@ if st.button("Predict Dropout Risk"):
 
     with st.expander("See input features as vector"):
         st.write(input_features.tolist())
+

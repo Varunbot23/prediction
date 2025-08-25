@@ -31,14 +31,14 @@
 
 ---
 
-## 📊 Dataset Notes
+## Dataset Notes
 - The dataset is anonymised and publicly available for educational purposes.  
 - No personally identifiable information (PII) is included.  
 - Demographic/socio-economic features (e.g., parental education, family income) may risk bias; redistribution may be restricted for ethical reasons.
 
 ---
 
-## ▶️ How to Run
+## How to Run
 1. Install dependencies:
    ```bash
    pip install -r requirements.txt

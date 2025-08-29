@@ -27,7 +27,7 @@ st.write("Provide the student's academic, behavioral, and demographic data to pr
 # Model loading + debug
 # =========================
 HERE = Path(__file__).parent
-MODEL_PATH = HERE / "random_forest_model.pkl"
+MODEL_PATH = HERE / "logistic_regression_pipeline.pkl"
 
 with st.expander("🔎 Debug info (hide before sharing)"):
     st.write("Working dir:", os.getcwd())
@@ -463,3 +463,4 @@ with st.expander("📥 Batch predictions from CSV"):
                                file_name="predictions.csv", mime="text/csv")
         except Exception as e:
             st.error(f"Batch prediction failed: {e}")
+

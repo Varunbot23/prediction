@@ -20,7 +20,7 @@ except Exception:
 # Page config
 # =========================
 st.set_page_config(page_title="Student Dropout Risk Prediction", page_icon="🎓", layout="centered")
-st.title("🎓 Student Dropout Risk Prediction (Random Forest)")
+st.title("🎓 Student Dropout Risk Prediction (Logstic Regression)")
 st.write("Provide the student's academic, behavioral, and demographic data to predict dropout risk.")
 
 # =========================
@@ -463,4 +463,5 @@ with st.expander("📥 Batch predictions from CSV"):
                                file_name="predictions.csv", mime="text/csv")
         except Exception as e:
             st.error(f"Batch prediction failed: {e}")
+
 
